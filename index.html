@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Medidor de Polling Rate del Mouse</title>
+  <style>
+    :root{
+      --bg:#0f1225;           /* fondo oscuro elegante */
+      --panel:#15183a;
+      --muted:#1e2250;
+      --text:#e8ebff;
+      --sub:#b9c0ff;
+      --ok:#2ad39b;
+      --warn:#ffb020;
+      --bad:#ff5a5f;
+      /* paleta del usuario */
+      --brand1:#2A2559; /* morado */
+      --brand2:#E96521; /* naranja */
+      --brand3:#007BDA; /* azul */
+      --brand4:#FF6720; /* naranja vivo */
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      background: radial-gradient(1000px 600px at 10% -10%, rgba(0,123,218,.25), transparent 60%),
+                  radial-gradient(800px 500px at 110% 10%, rgba(233,101,33,.18), transparent 60%),
+                  var(--bg);
+      color:var(--text);
+    }
+    .wrap{max-width:1100px; margin:32px auto; padding:0 16px}
+    .header{
+      display:flex; gap:16px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+    }
+    .title{
+      font-size: clamp(22px, 3vw, 34px);
+      font-weight:800; letter-spacing:.3px;
+      background: linear-gradient(90deg, var(--text), #9fb6ff 60%, #7de0ff);
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+    }
+    .card{background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01)); border:1px solid rgba(255,255,255,.07); border-radius:20px; padding:16px}
+    .grid{display:grid; grid-template-columns:1.2fr .8fr; gap:16px}
+    @media (max-width: 880px){ .grid{grid-template-columns:1fr} }
+
+    .controls{display:flex; gap:10px; flex-wrap:wrap}
+    button, select, input[type="number"], .toggle{
+      background:var(--muted); color:var(--text); border:1px solid rgba(255,255,255,.1);
+      padding:10px 12px; border-radius:12px; font-weight:600; cursor:pointer; outline:none;
+    }
+    button.primary{background: linear-gradient(180deg, var(--brand3), #1359a6); border-color: #1a78d4}
+    button.warning{background: linear-gradient(180deg, #d44a1a, var(--brand2)); border-color:#ff7a3b}
+    button.secondary{background: linear-gradient(180deg, #2c2f63, var(--brand1)); border-color:#3b3f7f}
+    button:disabled{opacity:.55; cursor:not-allowed}
+
+    .stats{
+      display:grid; grid-template-columns: repeat(6, 1fr); gap:12px; margin-top:12px
+    }
+    @media (max-width: 880px){ .stats{grid-template-columns: repeat(2,1fr)} }
+    .kpi{background:var(--panel); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:12px}
+    .kpi h3{margin:0; font-size:12px; color:var(--sub); font-weight:700; letter-spacing:.6px; text-transform:uppercase}
+    .kpi p{margin:6px 0 0 0; font-size: clamp(18px, 3vw, 26px); font-weight:800}
+
+    #zone{
+      margin-top:16px; height:280px; border-radius:18px;
+      border:1px dashed rgba(255,255,255,.25);
+      background: repeating-linear-gradient(135deg, rgba(255,255,255,.03) 0 12px, rgba(255,255,255,.02) 12px 24px),
+                  radial-gradient(300px 180px at 20% 20%, rgba(0,123,218,.15), transparent 60%),
+                  radial-gradient(500px 260px at 75% 60%, rgba(233,101,33,.12), transparent 60%),
+                  rgba(255,255,255,.01);
+      display:flex; align-items:center; justify-content:center; text-align:center; padding:16px
+    }
+    #zone h2{margin:0; font-size: clamp(18px, 2.4vw, 22px); color:#e9ecff}
+    #zone .hint{margin-top:8px; font-size:13px; color:#c7cdfd}
+
+    canvas{width:100%; height:260px; background:var(--panel); border:1px solid rgba(255,255,255,.06); border-radius:14px}
+
+    .progress{height:10px; background:rgba(255,255,255,.1); border-radius:999px; overflow:hidden}
+    .progress>div{height:100%; width:0%; background:linear-gradient(90deg, var(--brand3), var(--brand2)); transition: width .2s ease}
+
+    .row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+    .row label{font-size:13px; color:var(--sub)}
+
+    .foot {display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; margin-top:10px}
+    .pill{font-size:12px; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.08); color:var(--sub); border:1px solid rgba(255,255,255,.12)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div>
+        <div class="title">Medidor de Polling Rate del Mouse</div>
+        <div style="color:var(--sub); margin-top:6px; max-width:70ch">
+          Mide la frecuencia de reporte (Hz) de tu mouse en el navegador. Compatible con <b>Pointer Raw Input</b> (Chrome/Edge/Opera). Firefox/Safari usan un modo de compatibilidad.
+        </div>
+      </div>
+      <div class="controls">
+        <button id="startBtn" class="primary">Iniciar prueba</button>
+        <button id="stopBtn" class="warning" disabled>Detener</button>
+        <button id="resetBtn" class="secondary">Reiniciar</button>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:16px">
+      <div class="card">
+        <div class="row" style="margin-bottom:10px">
+          <label class="pill" id="modePill">Modo: Auto</label>
+          <div class="row">
+            <label>Duración (s):</label>
+            <input id="dur" type="number" min="1" max="60" value="5" style="width:90px" />
+          </div>
+          <div class="row">
+            <label><input type="checkbox" id="outlierChk" checked /> Filtrar outliers</label>
+          </div>
+          <div class="row">
+            <label><input type="checkbox" id="csvChk" /> Exportar CSV al finalizar</label>
+          </div>
+        </div>
+
+        <div id="zone">
+          <div>
+            <h2>Mueve el mouse aquí en círculos rápidos durante la prueba</h2>
+            <div class="hint">Usaremos <b>pointerrawupdate</b> si está disponible; si no, caemos a <b>pointermove</b> con eventos coalescidos.</div>
+            <div class="progress" style="margin-top:14px"><div id="bar"></div></div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px">
+          <canvas id="chart" width="900" height="260"></canvas>
+        </div>
+        <div class="foot">
+          <span class="pill">Consejo: desactiva “mejoras de precisión” del driver si quieres una señal más limpia.</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="stats">
+          <div class="kpi"><h3>Estimado (Hz)</h3><p id="kHz">—</p></div>
+          <div class="kpi"><h3>Estándar cercano</h3><p id="kStd">—</p></div>
+          <div class="kpi"><h3>Confianza</h3><p id="kConf">—</p></div>
+          <div class="kpi"><h3>Muestras</h3><p id="kN">0</p></div>
+          <div class="kpi"><h3>dt mediana (ms)</h3><p id="kMed">—</p></div>
+          <div class="kpi"><h3>Jitter (IQR ms)</h3><p id="kJit">—</p></div>
+        </div>
+        <div style="margin-top:14px">
+          <button id="copyBtn">Copiar resultados JSON</button>
+        </div>
+        <pre id="json" style="margin-top:10px; max-height:220px; overflow:auto; background:var(--panel); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:12px"></pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ----------------------------- Utilidades numéricas
+    const clamp=(x,a,b)=>Math.min(Math.max(x,a),b);
+    const mean = a => a.length? a.reduce((s,x)=>s+x,0)/a.length : NaN;
+    const median = a => {
+      if(!a.length) return NaN; const s=[...a].sort((x,y)=>x-y);
+      const m = Math.floor(s.length/2); return s.length%2? s[m] : (s[m-1]+s[m])/2;
+    };
+    const iqr = a => {
+      if(a.length<4) return NaN; const s=[...a].sort((x,y)=>x-y);
+      const q1 = s[Math.floor(0.25*(s.length-1))];
+      const q3 = s[Math.floor(0.75*(s.length-1))];
+      return q3 - q1;
+    };
+    const stdRates=[125,250,500,1000,2000,4000,8000];
+    const nearestStd = hz => stdRates.reduce((best,r)=> Math.abs(r-hz) < Math.abs(best-hz)? r:best, stdRates[0]);
+
+    // ----------------------------- Estado
+    let running=false, useRaw=false, startedAt=0, timer=null, lastTs=null;
+    const dts=[];           // dt en ms (filtrados)
+    const dtsRaw=[];        // dt crudo sin filtrar (para export)
+
+    const els={
+      zone: document.getElementById('zone'),
+      start: document.getElementById('startBtn'),
+      stop: document.getElementById('stopBtn'),
+      reset: document.getElementById('resetBtn'),
+      outlierChk: document.getElementById('outlierChk'),
+      csvChk: document.getElementById('csvChk'),
+      dur: document.getElementById('dur'),
+      bar: document.getElementById('bar'),
+      modePill: document.getElementById('modePill'),
+      kHz: document.getElementById('kHz'),
+      kStd: document.getElementById('kStd'),
+      kConf: document.getElementById('kConf'),
+      kN: document.getElementById('kN'),
+      kMed: document.getElementById('kMed'),
+      kJit: document.getElementById('kJit'),
+      chart: document.getElementById('chart'),
+      copy: document.getElementById('copyBtn'),
+      json: document.getElementById('json'),
+    };
+
+    // ----------------------------- Dibujo simple del gráfico (últimos 400 dts)
+    const ctx = els.chart.getContext('2d');
+    function drawChart(){
+      const W = els.chart.width, H = els.chart.height;
+      ctx.clearRect(0,0,W,H);
+      // Fondo
+      ctx.fillStyle = 'rgba(255,255,255,0.02)'; ctx.fillRect(0,0,W,H);
+      // Ejes
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth=1;
+      ctx.beginPath();
+      for(let y=0; y<=10; y+=1){
+        const yy = H - (y/10)*H; ctx.moveTo(0,yy); ctx.lineTo(W,yy);
+      }
+      ctx.stroke();
+      // Serie
+      const L = Math.min(400, dts.length);
+      if(!L) return;
+      const view = dts.slice(-L);
+      const maxYms = 10; // 0..10ms
+      ctx.beginPath();
+      ctx.lineWidth=2; ctx.strokeStyle = '#7de0ff';
+      view.forEach((ms, i)=>{
+        const x = i/(L-1) * (W-10) + 5;
+        const y = H - clamp(ms,0,maxYms)/maxYms * (H-10) - 5;
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+      // Leyendas sencillas
+      ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font='12px ui-sans-serif';
+      ctx.fillText('dt (ms)', 8, 14);
+      ctx.fillText('0', 8, H-4);
+      ctx.fillText('10', 8, 12);
+    }
+
+    // ----------------------------- Manejo de eventos
+    function processTs(ts){
+      if(lastTs==null){ lastTs = ts; return; }
+      let dt = ts - lastTs; lastTs = ts;
+      if(dt<=0 || dt>100) return; // ignora pausas largas o valores anómalos evidentes
+      dtsRaw.push(dt);
+      // Filtro de outliers opcional, basado en ventana reciente
+      if(els.outlierChk.checked){
+        const hz = 1000/dt;
+        // ignora valores imposibles o por encima de 12kHz (ruido) y por debajo de 20Hz
+        if(hz<20 || hz>12000) return;
+      }
+      dts.push(dt);
+      if(dts.length>5000) dts.splice(0, dts.length-5000);
+      if(dtsRaw.length>15000) dtsRaw.splice(0, dtsRaw.length-15000);
+      updateStats(); drawChart();
+    }
+
+    function onPointerRaw(e){ processTs(e.timeStamp); }
+    function onPointerMove(e){
+      const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+      for(const ev of list){ processTs(ev.timeStamp); }
+    }
+
+    function bindListeners(){
+      // Intentamos raw primero
+      els.zone.addEventListener('pointerrawupdate', onPointerRaw, {passive:true});
+      useRaw = 'onpointerrawupdate' in els.zone; // detección básica
+      if(!useRaw){
+        els.zone.addEventListener('pointermove', onPointerMove, {passive:true});
+        els.modePill.textContent = 'Modo: Compatibilidad';
+      }else{
+        // De todas formas mantenemos pointermove como respaldo si raw no dispara
+        els.zone.addEventListener('pointermove', onPointerMove, {passive:true});
+        els.modePill.textContent = 'Modo: Raw (preciso)';
+      }
+    }
+    function unbindListeners(){
+      els.zone.removeEventListener('pointerrawupdate', onPointerRaw);
+      els.zone.removeEventListener('pointermove', onPointerMove);
+    }
+
+    // ----------------------------- Estadísticas + UI
+    function updateStats(){
+      const n = dts.length; els.kN.textContent = String(n);
+      if(!n){ els.kHz.textContent='—'; els.kStd.textContent='—'; els.kConf.textContent='—'; els.kMed.textContent='—'; els.kJit.textContent='—'; return; }
+      const medMs = median(dts);
+      const hz = 1000/medMs;
+      const std = nearestStd(hz);
+      // confianza: % de muestras dentro de ±8% del estándar cercano
+      const lo = 1000/(std*1.08), hi = 1000/(std*0.92); // en ms
+      const inBand = dts.filter(x => x>=lo && x<=hi).length;
+      const conf = n? Math.round(100*inBand/n): 0;
+      const txtConf = conf>=85? 'Alta '+conf+'%' : conf>=60? 'Media '+conf+'%' : 'Baja '+conf+'%';
+      const jitter = iqr(dts);
+      els.kHz.textContent = hz.toFixed(0);
+      els.kStd.textContent = std + ' Hz';
+      els.kConf.textContent = txtConf;
+      els.kMed.textContent = medMs.toFixed(3);
+      els.kJit.textContent = isNaN(jitter)? '—' : jitter.toFixed(3);
+
+      // JSON resumen compacto
+      const summary = {
+        estimated_hz: Math.round(hz),
+        nearest_standard_hz: std,
+        confidence_pct: conf,
+        samples: n,
+        median_dt_ms: +medMs.toFixed(5),
+        iqr_ms: isNaN(jitter)? null : +jitter.toFixed(5),
+        mode: useRaw? 'raw' : 'compat'
+      };
+      els.json.textContent = JSON.stringify(summary, null, 2);
+    }
+
+    function reset(){
+      running=false; startedAt=0; lastTs=null; dts.length=0; dtsRaw.length=0; clearInterval(timer); timer=null;
+      els.bar.style.width = '0%'; els.stop.disabled=true; els.start.disabled=false; updateStats(); drawChart();
+    }
+
+    async function start(){
+      reset(); running=true; startedAt=performance.now(); els.start.disabled=true; els.stop.disabled=false;
+      bindListeners();
+      // “Calentamiento” de captura para el área
+      els.zone.setPointerCapture?.(1);
+      const durSec = clamp(parseInt(els.dur.value||'5',10)||5,1,60);
+      const t0 = performance.now();
+      timer = setInterval(()=>{
+        const elapsed = (performance.now()-t0)/1000;
+        els.bar.style.width = Math.min(100, elapsed/durSec*100) + '%';
+        if(elapsed>=durSec){ stop(); }
+      }, 50);
+    }
+
+    function stop(){
+      if(!running) return; running=false; clearInterval(timer); timer=null; els.stop.disabled=true; els.start.disabled=false; unbindListeners();
+      updateStats();
+      if(els.csvChk.checked && dtsRaw.length){
+        const csv = 'dt_ms\n' + dtsRaw.map(x=>x.toFixed(5)).join('\n');
+        const blob = new Blob([csv], {type:'text/csv'});
+        const url = URL.createObjectURL(blob);
+        const a = Object.assign(document.createElement('a'), {href:url, download:'polling_raw_dt_ms.csv'});
+        document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      }
+    }
+
+    // ----------------------------- Acciones UI
+    els.start.addEventListener('click', start);
+    els.stop.addEventListener('click', stop);
+    els.reset.addEventListener('click', reset);
+    els.copy.addEventListener('click', async ()=>{
+      try{ await navigator.clipboard.writeText(els.json.textContent||'{}');
+           els.copy.textContent='Copiado ✓'; setTimeout(()=>els.copy.textContent='Copiar resultados JSON',1000);
+      }catch{ els.copy.textContent='No se pudo copiar'; setTimeout(()=>els.copy.textContent='Copiar resultados JSON',1200);}    
+    });
+
+    // Pinta gráfico vacío al cargar
+    drawChart(); updateStats();
+  </script>
+</body>
+</html>
